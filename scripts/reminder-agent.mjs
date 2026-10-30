@@ -2,7 +2,7 @@ import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { plan, dateNumber } from '../src/engine.js';
+import { plan, dateNumber, applyManualMappings } from '../src/engine.js';
 export const DEFAULT_SETTINGS=Object.freeze({enabled:true,markets:['US'],timeZone:'Asia/Shanghai',dailyTime:'09:00',intervalMinutes:15,lookAheadDays:7,notifyOnUrgent:true});
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function clockParts(now,timeZone){
@@ -24,7 +24,8 @@ export function validateSettings(input,{legacy=false}={}){
 const ignoredPipeline=r=>r.qty===0||['received','completed','cancelled','已入库','已完成','已取消'].includes(r.status);
 export function assessWorkspace(saved,market,{today,lookAheadDays}){
   const alerts=[];
-  const productsBySku=new Map([...(saved?.data?.sales||[]),...(saved?.data?.pipeline||[]),...(saved?.data?.inventory||[])].filter(r=>r.product).map(r=>[r.sku,r.product]));
+  const effective=saved?.data?applyManualMappings(saved.data,market):null;
+  const productsBySku=new Map([...(effective?.sales||[]),...(effective?.pipeline||[]),...(effective?.inventory||[])].filter(r=>r.product).map(r=>[r.sku,r.product]));
   const add=value=>{
     const alert={market,sku:null,product:null,sea:null,air:null,deadline:null,...value};
     alert.spu=alert.sku&&productsBySku.get(alert.sku)===alert.product?alert.product:null;
@@ -32,7 +33,7 @@ export function assessWorkspace(saved,market,{today,lookAheadDays}){
   };
   if(!saved?.revision){add({type:'data-missing',level:'data',title:'请先导入市场数据',message:'缺少已保存的销量、库存与在途；不能判断何时补货。',action:'导入最新三类数据后重新巡检'});return alerts;}
   if(saved.isDemo){add({type:'demo',level:'data',title:'当前为演示数据',message:'演示数据不生成真实补货指令。',action:'导入真实数据'});return alerts;}
-  const data=saved.data;
+  const data=effective;
   if(data.asOf!==today){add({type:'data-stale',level:'data',title:data.asOf<today?'分析数据已过期':'分析日期晚于今天',message:`当前分析日期 ${data.asOf}，提醒时区今天为 ${today}。不会把旧库存推算成实时库存或给出可执行数量。`,action:'更新销量与当日库存快照，并核实在途ETA',dataDate:data.asOf});return alerts;}
   if(!data.sales.length){add({type:'data-missing-sales',level:'data',title:'缺少有效销量历史',message:'没有销量记录不等于明确零需求，不能据此判断无需补货。',action:'导入有效出库销量；如确实无销量，请提供明确的零销量历史记录'});return alerts;}
   const result=plan(data,market),actions=new Map(result.products.map(p=>[p.product,p.adoptedAction]));

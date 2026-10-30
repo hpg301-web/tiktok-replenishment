@@ -3,7 +3,7 @@ import readXlsxFile from 'read-excel-file/browser';
 import { inspectTable, normalizeImport } from './importer.js';
 import { dateAt, dateNumber } from './engine.js';
 export function emptyData(asOf = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date())) {
-  return { asOf, sales: [], inventory: [], pipeline: [], overrides: {}, routes: {}, productSignals: {} };
+  return { asOf, sales: [], inventory: [], pipeline: [], overrides: {}, routes: {}, productSignals: {}, skuMappings: {} };
 }
 export function demoData(market, asOf) {
   const d = emptyData(asOf), now = dateNumber(asOf);

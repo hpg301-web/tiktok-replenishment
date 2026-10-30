@@ -8,7 +8,7 @@ files.push('scripts/serve.mjs','scripts/store.mjs','scripts/reminder-agent.mjs',
 const entries=await Promise.all(files.map(async file=>[file,await readFile(resolve(root,file))]));
 const {version}=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
 const release=buildRelease(entries,version);entries.push(['release.json',Buffer.from(JSON.stringify(release))]);
-const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'暂时仅监控美国；备货建议和提醒中心按SPU默认收起，点击展开对应SKU。保留策略调整、原始表格识别、团队共享及在线更新。'};
+const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'新增SKU手动归类：批量归入已有或新建SPU、记住规则并应用到后续导入和提醒、可恢复自动识别。继续仅监控美国，保留SPU展开建议及在线更新。'};
 await mkdir(resolve(root,'downloads'),{recursive:true});await writeFile(resolve(root,'downloads/StockPilot-Windows.zip'),archive);
 await writeFile(resolve(root,'downloads/SHA256SUMS.txt'),manifest.sha256+'  StockPilot-Windows.zip\n');
 await writeFile(resolve(root,'downloads/update.json'),JSON.stringify(manifest,null,2)+'\n');

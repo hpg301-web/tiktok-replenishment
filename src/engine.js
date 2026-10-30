@@ -10,9 +10,26 @@ export function dateNumber(s) {
 }
 export const dateAt = n => new Date(n * DAY).toISOString().slice(0, 10);
 function count(v, label) { if (!Number.isSafeInteger(v) || v < 0) throw Error(label + ' 必须为非负整数，缺失值不能代零'); }
+function validateSkuMappings(mappings){
+  if(mappings===undefined)return;
+  if(!mappings||typeof mappings!=='object'||Array.isArray(mappings))throw Error('SKU归类必须为对象');
+  const entries=Object.entries(mappings);if(entries.length>20000)throw Error('SKU归类规则超过20000条');
+  for(const [key,spu] of entries){
+    if(!/^(US|DE)\|.+$/.test(key)||key.slice(3)!==key.slice(3).trim()||key.length>303)throw Error('SKU归类键必须为市场|原始SKU');
+    if(typeof spu!=='string'||!spu.trim()||spu!==spu.trim()||spu.length>200||/[\u0000-\u001f]/.test(spu))throw Error('目标SPU必须为1–200个字符的非空文本');
+  }
+}
+// Manual assignments override grouping only. Raw source rows and all quantities remain untouched.
+export function applyManualMappings(data,market){
+  validateSkuMappings(data.skuMappings);
+  const mappings=data.skuMappings||{};
+  const assign=row=>Object.hasOwn(mappings,market+'|'+row.sku)?{...row,product:mappings[market+'|'+row.sku]}:row;
+  return {...data,sales:data.sales.map(assign),inventory:data.inventory.map(assign),pipeline:data.pipeline.map(assign)};
+}
 export function validate(data, market) {
   if (!data || typeof data !== 'object') throw Error('数据必须为对象');
   dateNumber(data.asOf);
+  validateSkuMappings(data.skuMappings);
   for (const kind of ['sales', 'inventory', 'pipeline']) {
     if (!Array.isArray(data[kind])) throw Error(kind + ' 必须为数组');
     const keys = new Set();
@@ -83,18 +100,20 @@ function required(initial, demand, supply, start, end, safety, otherDay = -1, ot
   for (let d = start; d < end; d++) { stock += (supply.get(d)||0) + (d===otherDay?otherQty:0) - demand; minimum = Math.min(minimum, stock); }
   return Math.max(0, Math.ceil(safety - minimum - 1e-8));
 }
-export function plan(data, market) {
-  validate(data, market);
+export function plan(source, market) {
+  validate(source, market);
+  const data=applyManualMappings(source,market);
   const now = dateNumber(data.asOf), route = { ...ROUTE, ...data.routes?.[market] };
   const seaDay = route.prep + route.sea + route.customs + route.shelf, airDay = route.prep + route.air + route.customs + route.shelf;
   if (seaDay <= airDay || airDay < 1) throw Error('海运总时效须大于空运，空运总时效须至少1天');
   const skus = [...new Set([...data.sales,...data.inventory,...data.pipeline].map(r => r.sku))];
-  const groups = new Map();
+  const groups = new Map(),productSources=new Map();
   for (const sku of skus) {
     const rs = [...data.inventory,...data.sales,...data.pipeline].filter(r=>r.sku===sku);
     const products = [...new Set(rs.map(r=>r.product).filter(Boolean))];
     if (products.length > 1) throw Error('同一 SKU 对应多个产品：' + sku);
     const product = products[0] || sku;
+    productSources.set(sku,Object.hasOwn(data.skuMappings||{},market+'|'+sku)?'manual':products.length?'source':'unknown');
     if (!groups.has(product)) groups.set(product, []);
     groups.get(product).push(sku);
   }
@@ -120,7 +139,7 @@ export function plan(data, market) {
       const ss = stats(rows, now), demand = ss.demand * (signal.demandMultiplier || 1);
       if (!ss.complete) warnings.push('可售记录不完整，需求可能低估');
       if (ss.span < 14) warnings.push('历史不足14天');
-      if (!meta.product) warnings.push('缺产品字段，按独立SKU计算');
+      if (productSources.get(sku)==='unknown') warnings.push('缺产品字段，按独立SKU计算');
       const supply = new Map();
       for (const r of data.pipeline.filter(r=>r.sku===sku)) {
         if (['received','completed','cancelled','已入库','已完成','已取消'].includes(r.status)) continue;
@@ -142,7 +161,7 @@ export function plan(data, market) {
       const safetyDate = existing.daily.find(d=>d.stock < safety)?.date;
       warnings.push('MOQ、箱规、预算与国内供给尚未计入');
       if (signal.contribution == null || signal.airExtra == null) warnings.push('利润或运费未知，未验证空运经济性');
-      items.push({ market, product, sku, color: meta.color || '', size: meta.size || '', policy, demand, available: valid?stock:null, pipeline: [...supply.values()].reduce((s,q)=>s+q,0), air: valid?air:null, sea: valid?sea:null, airReference: valid?airReference:null, airDate: dateAt(now+airDay), seaDate: dateAt(now+seaDay), firstStockout: valid?existing.first:null, latestAirStart: valid&&safetyDate?dateAt(dateNumber(safetyDate)-airDay):null, latestSeaStart: valid&&safetyDate?dateAt(dateNumber(safetyDate)-seaDay):null, lost: valid?base.lost:null, beforeAir: valid?base.beforeAir:null, daily: valid?base.daily:[], scenario: valid?{ extraStock, extraLost, capital: signal.unitCost!=null?extraStock*signal.unitCost:null, markdown: signal.unitCost!=null&&signal.recoveryPct!=null?extraStock*signal.unitCost*(1-signal.recoveryPct/100):null, missedContribution: signal.contribution>0?extraLost*signal.contribution:null }:null, warnings });
+      items.push({ market, product, sku, productSource:productSources.get(sku), color: meta.color || '', size: meta.size || '', policy, demand, available: valid?stock:null, pipeline: [...supply.values()].reduce((s,q)=>s+q,0), air: valid?air:null, sea: valid?sea:null, airReference: valid?airReference:null, airDate: dateAt(now+airDay), seaDate: dateAt(now+seaDay), firstStockout: valid?existing.first:null, latestAirStart: valid&&safetyDate?dateAt(dateNumber(safetyDate)-airDay):null, latestSeaStart: valid&&safetyDate?dateAt(dateNumber(safetyDate)-seaDay):null, lost: valid?base.lost:null, beforeAir: valid?base.beforeAir:null, daily: valid?base.daily:[], scenario: valid?{ extraStock, extraLost, capital: signal.unitCost!=null?extraStock*signal.unitCost:null, markdown: signal.unitCost!=null&&signal.recoveryPct!=null?extraStock*signal.unitCost*(1-signal.recoveryPct/100):null, missedContribution: signal.contribution>0?extraLost*signal.contribution:null }:null, warnings });
     }
   }
   return { market, asOf: data.asOf, route, products, items };
