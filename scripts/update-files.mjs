@@ -1,6 +1,7 @@
 import { lstat, mkdir, copyFile, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { allowedFile } from './update-archive.mjs';
+export const DATA_FILES=['US.json','DE.json','access-code.txt','agent-settings.json','agent-state.json'];
 export async function safeTarget(root,path){
   if(!allowedFile(path))throw Error('Refusing path outside software scope');
   let current=root;
@@ -33,5 +34,5 @@ export async function rollbackSoftware(root,backup,record){
 }
 export async function snapshotData(dataDir,backup){
   await mkdir(backup,{recursive:true});
-  for(const name of ['US.json','DE.json','access-code.txt'])try{await copyFile(join(dataDir,name),join(backup,name));}catch(e){if(e.code!=='ENOENT')throw e;}
+  for(const name of DATA_FILES)try{await copyFile(join(dataDir,name),join(backup,name));}catch(e){if(e.code!=='ENOENT')throw e;}
 }

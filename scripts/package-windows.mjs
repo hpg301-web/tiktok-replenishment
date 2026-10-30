@@ -4,11 +4,11 @@ import { encodeZip, buildRelease, sha256 } from './update-archive.mjs';
 const root=resolve(import.meta.dirname,'..'),files=[];
 async function add(path){for(const entry of (await readdir(resolve(root,path),{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){const p=path+'/'+entry.name;if(entry.isDirectory())await add(p);else files.push(p);}}
 await add('dist');
-files.push('scripts/serve.mjs','scripts/store.mjs','scripts/updater.mjs','scripts/apply-update.mjs','scripts/update-files.mjs','scripts/update-archive.mjs','src/engine.js','package.json','windows/manage.ps1','Start.vbs','Stop.vbs','Enable-startup.vbs','Disable-startup.vbs','LAN-address.vbs','Enable-LAN.vbs','windows/README-Windows.md');
+files.push('scripts/serve.mjs','scripts/store.mjs','scripts/reminder-agent.mjs','scripts/updater.mjs','scripts/apply-update.mjs','scripts/update-files.mjs','scripts/update-archive.mjs','src/engine.js','package.json','windows/manage.ps1','Start.vbs','Stop.vbs','Enable-startup.vbs','Disable-startup.vbs','LAN-address.vbs','Enable-LAN.vbs','windows/README-Windows.md');
 const entries=await Promise.all(files.map(async file=>[file,await readFile(resolve(root,file))]));
 const {version}=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
 const release=buildRelease(entries,version);entries.push(['release.json',Buffer.from(JSON.stringify(release))]);
-const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'新增主机在线检查更新、完整性校验、数据备份和启动失败回退。保留智能导入与团队共享功能。'};
+const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'新增补货提醒Agent：定时巡检、每日汇总、临近补货/缺货提醒、资料质量提示和可选浏览器通知。保留团队共享、智能导入和在线更新。'};
 await mkdir(resolve(root,'downloads'),{recursive:true});await writeFile(resolve(root,'downloads/StockPilot-Windows.zip'),archive);
 await writeFile(resolve(root,'downloads/SHA256SUMS.txt'),manifest.sha256+'  StockPilot-Windows.zip\n');
 await writeFile(resolve(root,'downloads/update.json'),JSON.stringify(manifest,null,2)+'\n');

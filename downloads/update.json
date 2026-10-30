@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "version": "0.2.0",
-  "buildId": "3eb54547f2b8b918a2b51e274142886acf5c5098465b599f2ab4af299e25082b",
-  "sha256": "b9f884f30fbddd06fcce2d14b92954f62e100591d228b187a73276c90cf430c3",
-  "bytes": 189566,
-  "notes": "新增主机在线检查更新、完整性校验、数据备份和启动失败回退。保留智能导入与团队共享功能。"
+  "version": "0.3.0",
+  "buildId": "07acceb0ef7dba853b460566614dfd43936e6feb7cad359a05a97d4ecd23eaa6",
+  "sha256": "e3f22917ceb8917f8c6ee449b90068ea49ca0b1502db94849f6f2d63af6baad4",
+  "bytes": 214850,
+  "notes": "新增补货提醒Agent：定时巡检、每日汇总、临近补货/缺货提醒、资料质量提示和可选浏览器通知。保留团队共享、智能导入和在线更新。"
 }

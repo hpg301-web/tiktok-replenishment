@@ -7,11 +7,15 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { openStore } from './store.mjs';
 import { existsSync } from 'node:fs';
 import { createUpdater, currentRelease } from './updater.mjs';
+import { createReminderAgent } from './reminder-agent.mjs';
 
 const mime = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.json':'application/json; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.ico':'image/x-icon' };
-export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), sessionMs=8*60*60*1000, updaterFactory=null }={}) {
+export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), sessionMs=8*60*60*1000, updaterFactory=null, agentStart=false, agentOptions={} }={}) {
   const store=await openStore(dataDir);
-  const updates=updaterFactory?await updaterFactory(store):null;
+  let agent;
+  try{agent=await createReminderAgent({store,dataDir,...agentOptions});}
+  catch{const unavailable=()=>{throw Object.assign(Error('提醒文件无法读取；业务工作区仍可使用，请管理员核实提醒文件及备份'),{status:503});};agent={snapshot:unavailable,check:unavailable,saveSettings:unavailable,acknowledge:unavailable,start(){},stop:async()=>{},pause:async()=>{},resume(){},trigger(){}};}
+  const updates=updaterFactory?await updaterFactory({...store,async pause(){await store.pause();await agent.pause();},resume(){store.resume();agent.resume();}}):null;
   const localManager=req=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)&&/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(req.headers.host||'');
   const sessions=new Map(), attempts=new Map();
   function authorized(req) {
@@ -26,13 +30,13 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
   }
   const base = await realpath(root);
   const instance = createHash('sha256').update(base).digest('hex').slice(0,24);
-  return createServer(async (req,res)=>{
+  const server=createServer(async (req,res)=>{
     const finish = (status,body,type='text/plain; charset=utf-8')=>{res.writeHead(status,{'Content-Type':type,'X-Content-Type-Options':'nosniff','Cache-Control':'no-cache','Referrer-Policy':'same-origin'});res.end(req.method==='HEAD'?undefined:body);};
     if (req.url.startsWith('/api/')) {
       const json=(status,value)=>finish(status,JSON.stringify(value),mime['.json']);
       try {
         if(req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)return json(403,{error:'请求来源不匹配'});
-        if(req.url==='/api/mode' && req.method==='GET')return json(200,{shared:true,authenticated:authorized(req),version:updates?.current?.version||'开发版',buildId:updates?.current?.buildId||null,canManageUpdates:localManager(req),updateSupported:updates?.supported===true,maintenance:existsSync(resolve(dataDir,'update-lock'))});
+        if(req.url==='/api/mode' && req.method==='GET')return json(200,{shared:true,authenticated:authorized(req),version:updates?.current?.version||'开发版',buildId:updates?.current?.buildId||null,canManageUpdates:localManager(req),canManageAgent:localManager(req),updateSupported:updates?.supported===true,maintenance:existsSync(resolve(dataDir,'update-lock'))});
         if(req.url==='/api/login' && req.method==='POST') {
           const ip=req.socket.remoteAddress;
           let record=attempts.get(ip);
@@ -49,6 +53,16 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
         if(req.url==='/api/logout' && req.method==='POST'){
           const token=/(?:^|;\s*)stockpilot_session=([a-f0-9]+)/.exec(req.headers.cookie||'')?.[1];sessions.delete(token);
           res.setHeader('Set-Cookie','stockpilot_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(200,{ok:true});
+        }
+        if(req.url.startsWith('/api/agent')){
+          if(req.url==='/api/agent'&&req.method==='GET')return json(200,await agent.snapshot());
+          if(req.url==='/api/agent/check'&&req.method==='POST')return json(200,await agent.check('manual',true));
+          if(req.url==='/api/agent/ack'&&req.method==='POST'){const input=await body(req);return json(200,await agent.acknowledge(input.id,input.fingerprint));}
+          if(req.url==='/api/agent/settings'&&req.method==='PUT'){
+            if(!localManager(req))return json(403,{error:'仅允许主机通过localhost登录后调整巡检设置'});
+            const input=await body(req);try{return json(200,await agent.saveSettings(input.settings,input.revision));}catch(e){if(!e.status&&!e.code)e.status=400;throw e;}
+          }
+          return json(405,{error:'Method not allowed'});
         }
         if(req.url.startsWith('/api/update/')){
           if(!localManager(req))return json(403,{error:'仅允许在主机通过 localhost 登录后更新；同事请联系主机管理员'});
@@ -67,7 +81,7 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
           if(req.headers['if-match']===undefined||!Number.isSafeInteger(revision)||revision<0)return json(428,{error:'缺少有效版本号'});
           const input=await body(req);
           let saved;try{saved=await store.save(match[1],input,revision);}catch(e){if(!e.status && !e.code)e.status=400;throw e;}
-          return json(200,saved);
+          agent.trigger();return json(200,saved);
         }
         return json(405,{error:'Method not allowed'});
       }catch(e){console.error(e.code||e.status||'API error');return json(e.status||500,{error:e.status?e.message:'服务器数据读取失败，未覆盖已有文件；请联系管理员检查备份。'});}
@@ -95,6 +109,10 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
       console.error(error.message);finish(500,'Server error');
     }
   });
+  if(agentStart)server.once('listening',()=>agent.start());
+  const closeHTTP=server.close.bind(server);
+  server.close=callback=>{const drained=agent.stop();return closeHTTP(error=>{drained.then(()=>callback?.(error),cause=>callback?.(cause));});};
+  server.reminderAgent=agent;return server;
 }
 if (process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   const root = resolve(dirname(fileURLToPath(import.meta.url)),'../dist');
@@ -102,7 +120,7 @@ if (process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)
   if (!Number.isInteger(port)||port<1||port>65535) throw Error('Invalid STOCKPILOT_PORT');
   const project=resolve(root,'..'),dataDir=resolve(project,'.stockpilot'),current=await currentRelease(project);
   let server;
-  server = await createApp(root,{dataDir,updaterFactory:store=>createUpdater({root:project,dataDir,store,current,port,shutdown:()=>{server.close(()=>process.exit(0));setTimeout(()=>{server.closeAllConnections();process.exit(0);},1000);}})});
+  server = await createApp(root,{dataDir,agentStart:true,updaterFactory:store=>createUpdater({root:project,dataDir,store,current,port,shutdown:()=>{server.close(()=>process.exit(0));setTimeout(()=>{server.closeAllConnections();process.exit(0);},1000);}})});
   server.on('error',e=>{console.error(e.code==='EADDRINUSE'?`Port ${port} is already in use; stop the old development server first.`:e.message);process.exitCode=1;});
   server.listen(port,'0.0.0.0',()=>console.log(`StockPilot local deployment listening on ${port}`));
 }

@@ -3,9 +3,9 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { backupSoftware, applySoftware, rollbackSoftware } from './update-files.mjs';
+import { backupSoftware, applySoftware, rollbackSoftware, DATA_FILES } from './update-files.mjs';
 import { sha256 } from './update-archive.mjs';
-const DATA=['US.json','DE.json','access-code.txt'];
+const DATA=DATA_FILES;
 export async function verifyStage(job){
   const release=JSON.parse(await readFile(join(job.stage,'release.json'),'utf8'));
   if(release.version!==job.version||release.buildId!==job.buildId||sha256(Buffer.from(JSON.stringify(release.files)))!==job.buildId||job.paths.length!==release.files.length+1)throw Error('Staged release identity changed');

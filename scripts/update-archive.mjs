@@ -44,6 +44,6 @@ export function verifyArchive(bytes,manifest){
   const seen=new Set();
   for(const f of release.files){if(!allowedFile(f.path)||f.path==='release.json'||seen.has(f.path)||!files.has(f.path)||sha256(files.get(f.path))!==f.sha256)throw Error('更新文件清单校验失败');seen.add(f.path);}
   if(sha256(Buffer.from(JSON.stringify(release.files)))!==release.buildId)throw Error('更新构建标识无效');
-  for(const required of ['dist/index.html','dist/us.html','dist/de.html','scripts/serve.mjs','scripts/store.mjs','scripts/updater.mjs','scripts/apply-update.mjs','scripts/update-files.mjs','scripts/update-archive.mjs','src/engine.js','package.json','Start.vbs','windows/manage.ps1'])if(!files.has(required))throw Error('更新包缺少必要文件');
+  for(const required of ['dist/index.html','dist/us.html','dist/de.html','scripts/serve.mjs','scripts/store.mjs','scripts/reminder-agent.mjs','scripts/updater.mjs','scripts/apply-update.mjs','scripts/update-files.mjs','scripts/update-archive.mjs','src/engine.js','package.json','Start.vbs','windows/manage.ps1'])if(!files.has(required))throw Error('更新包缺少必要文件');
   return {files,release};
 }
