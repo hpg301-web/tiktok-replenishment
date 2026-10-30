@@ -5,10 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { openStore } from './store.mjs';
+import { existsSync } from 'node:fs';
+import { createUpdater, currentRelease } from './updater.mjs';
 
 const mime = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.json':'application/json; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.ico':'image/x-icon' };
-export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), sessionMs=8*60*60*1000 }={}) {
+export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), sessionMs=8*60*60*1000, updaterFactory=null }={}) {
   const store=await openStore(dataDir);
+  const updates=updaterFactory?await updaterFactory(store):null;
+  const localManager=req=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)&&/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(req.headers.host||'');
   const sessions=new Map(), attempts=new Map();
   function authorized(req) {
     const token=/(?:^|;\s*)stockpilot_session=([a-f0-9]+)/.exec(req.headers.cookie||'')?.[1];
@@ -28,7 +32,7 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
       const json=(status,value)=>finish(status,JSON.stringify(value),mime['.json']);
       try {
         if(req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)return json(403,{error:'请求来源不匹配'});
-        if(req.url==='/api/mode' && req.method==='GET')return json(200,{shared:true,authenticated:authorized(req)});
+        if(req.url==='/api/mode' && req.method==='GET')return json(200,{shared:true,authenticated:authorized(req),version:updates?.current?.version||'开发版',buildId:updates?.current?.buildId||null,canManageUpdates:localManager(req),updateSupported:updates?.supported===true,maintenance:existsSync(resolve(dataDir,'update-lock'))});
         if(req.url==='/api/login' && req.method==='POST') {
           const ip=req.socket.remoteAddress;
           let record=attempts.get(ip);
@@ -46,10 +50,19 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
           const token=/(?:^|;\s*)stockpilot_session=([a-f0-9]+)/.exec(req.headers.cookie||'')?.[1];sessions.delete(token);
           res.setHeader('Set-Cookie','stockpilot_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(200,{ok:true});
         }
+        if(req.url.startsWith('/api/update/')){
+          if(!localManager(req))return json(403,{error:'仅允许在主机通过 localhost 登录后更新；同事请联系主机管理员'});
+          if(!updates)return json(400,{error:'请安装 Windows 部署包后使用在线更新'});
+          if(req.url==='/api/update/status'&&req.method==='GET')return json(200,await updates.status());
+          if(req.url==='/api/update/check'&&req.method==='POST')return json(200,await updates.check());
+          if(req.url==='/api/update/install'&&req.method==='POST')return json(202,await updates.install(await body(req)));
+          return json(405,{error:'Method not allowed'});
+        }
         const match=/^\/api\/workspace\/(US|DE)$/.exec(req.url);
         if(!match)return json(404,{error:'Not found'});
         if(req.method==='GET')return json(200,await store.read(match[1]));
         if(req.method==='PUT'){
+          if(existsSync(resolve(dataDir,'update-lock')))return json(503,{error:'主机正在更新，暂时不能修改数据；请稍后刷新'});
           const revision=Number(req.headers['if-match']);
           if(req.headers['if-match']===undefined||!Number.isSafeInteger(revision)||revision<0)return json(428,{error:'缺少有效版本号'});
           const input=await body(req);
@@ -87,7 +100,9 @@ if (process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)
   const root = resolve(dirname(fileURLToPath(import.meta.url)),'../dist');
   const port = Number(process.env.STOCKPILOT_PORT||5173);
   if (!Number.isInteger(port)||port<1||port>65535) throw Error('Invalid STOCKPILOT_PORT');
-  const server = await createApp(root);
+  const project=resolve(root,'..'),dataDir=resolve(project,'.stockpilot'),current=await currentRelease(project);
+  let server;
+  server = await createApp(root,{dataDir,updaterFactory:store=>createUpdater({root:project,dataDir,store,current,port,shutdown:()=>{server.close(()=>process.exit(0));setTimeout(()=>{server.closeAllConnections();process.exit(0);},1000);}})});
   server.on('error',e=>{console.error(e.code==='EADDRINUSE'?`Port ${port} is already in use; stop the old development server first.`:e.message);process.exitCode=1;});
   server.listen(port,'0.0.0.0',()=>console.log(`StockPilot local deployment listening on ${port}`));
 }

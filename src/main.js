@@ -2,6 +2,7 @@ import './style.css';
 import { plan, validate, ROUTE } from './engine.js';
 import { normalizeImport } from './importer.js';
 import { confirmImport } from './import-ui.js';
+import { openUpdates } from './update-ui.js';
 import { emptyData, demoData, parseImportFile, csv } from './data.js';
 const market = location.pathname === '/de.html' ? 'DE' : 'US';
 const key = 'stockpilot.v1.'+market;
@@ -10,7 +11,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<
 const num = value => value == null ? '待核实' : Number(value.toFixed(1)).toLocaleString('zh-CN');
 const actionNames = { grow:'加仓',hold:'维持',reduce:'减仓',stop:'停止补货' };
 let data = emptyData(), isDemo = false, message = '', result, storageWarning = '';
-let shared=false, revision=0, busy=0;
+let shared=false, revision=0, busy=0, serverMode={};
 try { const saved = localStorage.getItem(key); if (saved) { const s=JSON.parse(saved); validate(s.data,market); data=s.data; isDemo=s.isDemo===true; } } catch { storageWarning='本地保存数据无法读取。未覆盖原数据，请先导出或检查浏览器存储。'; }
 async function commit(next, demo=isDemo) {
   validate(next,market); plan(next,market); // Atomic: bad imports never replace the current workspace.
@@ -30,7 +31,7 @@ function render() {
   const items=result.items, valid=items.filter(i=>i.sea!==null), total=field=>valid.reduce((s,i)=>s+i[field],0), risks=items.filter(i=>i.available===null || i.lost>0).length;
   document.querySelector('#app').innerHTML=`
   <aside><a class="brand" href="/us.html"><span class="brand-icon">S</span> StockPilot<span class="beta">BETA</span></a><div class="side-label">TIKTOK SHOP · 库存管理</div><nav aria-label="市场"><a href="/us.html" class="${market==='US'?'active':''}">US <span>美国工作区</span></a><a href="/de.html" class="${market==='DE'?'active':''}">DE <span>德国工作区</span></a></nav><div class="side-note"><span class="dot"></span> ${shared?'团队共用工作区':'本地工作区'}<br><small>${shared?'数据统一保存到主机':'文件在浏览器内处理'}<br>美德数据独立保存</small></div></aside>
-  <main><header><div><span class="eyebrow">REPLENISHMENT PLANNER / ${market}</span><h1>${name}补货工作台</h1><p>从销量到下一批库存，让每一次补货有据可依。</p></div><div class="header-actions">${shared?'<button id="refresh">载入最新数据</button><button id="logout">退出登录</button>':''}<button id="backup">导出工作区</button><button id="export" class="primary" ${items.length?'':'disabled'}>导出补货清单 ↗</button></div></header>
+  <main><header><div><span class="eyebrow">REPLENISHMENT PLANNER / ${market}</span><h1>${name}补货工作台</h1><p>从销量到下一批库存，让每一次补货有据可依。</p></div><div class="header-actions">${shared?'<button id="refresh">载入最新数据</button><button id="check-update">检查更新</button><button id="logout">退出登录</button>':''}<button id="backup">导出工作区</button><button id="export" class="primary" ${items.length?'':'disabled'}>导出补货清单 ↗</button></div></header>
   <div class="toolbar"><label>分析日期 <input id="asOf" type="date" value="${esc(data.asOf)}"></label><span>币种 ${market==='US'?'USD':'EUR'} · 自然日</span><span class="status">${isDemo?'演示数据 · 不用于采购':shared?'团队共用 · 版本 '+revision:'实际数据工作区'}</span></div>
   <p id="notice" role="status" aria-live="polite">${esc(storageWarning||message)}</p>
   <section class="metrics" aria-label="计划概览"><article><span>待处理风险</span><strong>${risks}<small> 个 SKU</small></strong><p>缺货或库存待核实</p></article><article><span>海运建议</span><strong>${num(total('sea'))}<small> 件</small></strong><p>预计可售 ${items[0]?.seaDate || '—'}</p></article><article><span>空运建议</span><strong>${num(total('air'))}<small> 件</small></strong><p>预计可售 ${items[0]?.airDate || '—'}</p></article><article><span>空运到货前缺口</span><strong>${num(total('beforeAir'))}<small> 件</small></strong><p>新增空运也无法弥补的缺货</p></article></section>
@@ -39,8 +40,9 @@ function render() {
   <section class="panel"><div class="section-title"><div><span class="eyebrow">02 / REPLENISHMENT PLAN</span><h2>产品策略与 SKU 计划</h2></div><span class="muted">${items.length} 个 SKU · ${result.products.length} 个产品</span></div>
   ${items.length?result.products.map(p=>`<article class="product"><div class="product-head"><div><h3>${esc(p.product)}</h3><p>${esc(p.reason)}</p></div><div class="policy"><span>${actionNames[p.adoptedAction]} · 推荐 ${p.recommended}</span><label>采用策略 <select data-product="${esc(p.product)}"><option value="">自动推荐</option>${['A','B','C'].map(v=>`<option value="${v}" ${data.overrides?.[market+'|'+p.product]===v?'selected':''}>${v} · ${{A:'优先不断货',B:'平衡',C:'轻库存'}[v]}</option>`).join('')}</select></label></div></div><div class="table-scroll"><table><thead><tr><th>SKU / 颜色尺码</th><th>预测日销</th><th>可用 / 已确认在途</th><th>海运 / 空运</th><th>首次缺货</th><th>最晚海运启动</th><th>计划缺货量</th></tr></thead><tbody>${items.filter(i=>i.product===p.product).map(i=>`<tr><td><b>${esc(i.sku)}</b><small>${esc(i.color)} ${esc(i.size)}</small></td><td>${num(i.demand)}</td><td>${num(i.available)} / ${num(i.pipeline)}</td><td><b>${num(i.sea)} / ${num(i.air)}</b></td><td>${i.firstStockout||'—'}</td><td class="${i.latestSeaStart&&i.latestSeaStart<data.asOf?'overdue':''}">${i.latestSeaStart||'—'}${i.latestSeaStart&&i.latestSeaStart<data.asOf?' · 已过期':''}</td><td>${num(i.lost)}</td></tr><tr class="detail"><td colspan="7"><details><summary>数据提醒与需求压力测试 · ${i.warnings.length} 项</summary><p>${i.warnings.map(esc).join('；')}</p>${i.scenario?`<p>需求 70%：额外期末库存 ${num(i.scenario.extraStock)} 件；额外资金占用 ${num(i.scenario.capital)}；潜在折价损失 ${num(i.scenario.markdown)}。需求 130%：额外缺货 ${num(i.scenario.extraLost)} 件；可能少赚贡献利润 ${num(i.scenario.missedContribution)}。金额币种 ${market==='US'?'USD':'EUR'}，待核实表示成本未知。</p><p>最晚空运启动 ${i.latestAirStart||'—'}；C策略空运参考量 ${num(i.airReference)} 件。情景不代表发生概率或历史损失。</p>`:''}</details></td></tr>`).join('')}</tbody></table></div></article>`).join(''):`<div class="empty"><div>↗</div><h3>第一份补货计划，从数据开始</h3><p>导入销量、库存和在途文件，或载入演示数据了解工作流程。</p></div>`}</section>
   <details class="panel settings"><summary>运输参数与计算口径</summary><form id="route">${Object.entries({prep:'国内交货代',sea:'海运运输',air:'空运运输',customs:'清关',shelf:'清关后至可售'}).map(([k,label])=>`<label>${label}（天）<input name="${k}" type="number" min="0" max="365" required value="${result.route[k]}"></label>`).join('')}<button class="primary">保存参数</button></form><p>A：安全21天 / 批量覆盖21天；B：10 / 14；C：5 / 7，默认不空运。预测采用7/14/30天加权均值。缺日期计零，明确不可售日剔除。按收货先于当日销售逐日模拟，缺货计损失销量。</p></details>
-  <footer>首版规划工具 · 启发式规则需回测 · 不自动下采购单 · 未接通 TikTok 或领星 API</footer></main>`;
+  <footer>${shared?'软件版本 '+esc(serverMode.version||'开发版')+' · ':''}首版规划工具 · 启发式规则需回测 · 不自动下采购单 · 未接通 TikTok 或领星 API</footer></main>`;
   if(shared) {
+    document.querySelector('#check-update').onclick=run(()=>openUpdates(api,serverMode));
     document.querySelector('#refresh').onclick=run(async()=>{await loadShared();message='已载入主机最新数据';render();});
     document.querySelector('#logout').onclick=run(async()=>{await api('/api/logout',{method:'POST'});login();});
   }
@@ -71,6 +73,7 @@ async function api(url, options) {
 async function loadShared() {
   const saved=await api('/api/workspace/'+market);validate(saved.data,market);
   data=saved.data;isDemo=saved.isDemo;revision=saved.revision;storageWarning='';
+  if(serverMode.canManageUpdates)try{const r=await fetch('/api/update/status');if(r.ok){const status=await r.json();if(['succeeded','rolled-back','needs-attention'].includes(status.phase))message=status.message;}}catch{}
 }
 function login() {
   document.querySelector('#app').innerHTML=`<div class="login"><span class="eyebrow">STOCKPILOT / TEAM WORKSPACE</span><h1>登录团队工作区</h1><p>输入主机管理员提供的访问口令。团队数据统一保存在主机。</p><form id="login"><label>访问口令<input name="code" type="password" required autocomplete="current-password"></label><button class="primary">进入工作区</button></form><p id="notice" role="status" aria-live="polite"></p><small>仅在可信公司局域网使用；请勿将服务端口映射到公网。</small></div>`;
@@ -80,7 +83,7 @@ try {
   const response=await fetch('/api/mode');
   if(response.headers.get('content-type')?.includes('application/json')) {
     if(!response.ok)throw Error('无法读取团队服务状态');
-    const mode=await response.json();shared=mode.shared===true;
+    const mode=await response.json();serverMode=mode;shared=mode.shared===true;
     if(shared){if(mode.authenticated){await loadShared();render();}else login();}else render();
   } else render(); // Vite development mode has no team API.
 } catch(e) {

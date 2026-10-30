@@ -8,7 +8,7 @@ export async function openStore(dir) {
   try { await writeFile(codeFile,randomBytes(18).toString('base64url'),{flag:'wx',mode:0o600}); } catch(e) { if(e.code!=='EEXIST')throw e; }
   const accessCode=(await readFile(codeFile,'utf8')).trim();
   if(accessCode.length<12)throw Error('Access code must contain at least 12 characters');
-  let queue=Promise.resolve();
+  let queue=Promise.resolve(),paused=false;
   const read=async market=>{
     try {
       const saved=JSON.parse(await readFile(join(dir,market+'.json'),'utf8'));
@@ -20,7 +20,8 @@ export async function openStore(dir) {
       return {revision:0,data:{asOf,sales:[],inventory:[],pipeline:[],overrides:{},routes:{},productSignals:{}},isDemo:false};
     }
   };
-  return {accessCode,read,save(market,body,revision){
+  return {accessCode,read,async pause(){paused=true;await queue;},resume(){paused=false;},save(market,body,revision){
+    if(paused)throw Object.assign(Error('主机正在更新，暂时不能修改数据；请稍后刷新'),{status:503});
     const operation=queue.then(async()=>{
       validate(body.data,market);plan(body.data,market);
       const previous=await read(market);
