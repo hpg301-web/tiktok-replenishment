@@ -8,7 +8,7 @@ files.push('scripts/serve.mjs','scripts/store.mjs','scripts/reminder-agent.mjs',
 const entries=await Promise.all(files.map(async file=>[file,await readFile(resolve(root,file))]));
 const {version}=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
 const release=buildRelease(entries,version);entries.push(['release.json',Buffer.from(JSON.stringify(release))]);
-const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'新增SKU手动归类：批量归入已有或新建SPU、记住规则并应用到后续导入和提醒、可恢复自动识别。继续仅监控美国，保留SPU展开建议及在线更新。'};
+const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'新增SKU编码自动分类：下划线前最后两位为颜色编码，其余为SPU，下划线后为尺码。保留00等前导零；手动归类优先，应用于已有数据、备货建议和提醒。'};
 await mkdir(resolve(root,'downloads'),{recursive:true});await writeFile(resolve(root,'downloads/StockPilot-Windows.zip'),archive);
 await writeFile(resolve(root,'downloads/SHA256SUMS.txt'),manifest.sha256+'  StockPilot-Windows.zip\n');
 await writeFile(resolve(root,'downloads/update.json'),JSON.stringify(manifest,null,2)+'\n');

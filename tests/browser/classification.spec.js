@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';
 import {createApp} from '../../scripts/serve.mjs';
-const skus=['TEST001_42D','TEST002_40C','KNOWN_S'];
+const skus=['UNRESOLVED-M','UNRESOLVED-L','KNOWN_S'];
 function fixture(market='US'){const asOf='2026-10-30';return {asOf,sales:skus.map(sku=>({market,sku,date:asOf,units:1,...sku==='KNOWN_S'?{product:'TEST-SPU'}:{}})),inventory:skus.map(sku=>({market,sku,available:10,snapshot_date:asOf,...sku==='KNOWN_S'?{product:'TEST-SPU'}:{}})),pipeline:[]};}
 let dir,server,url;
 test.beforeEach(async()=>{dir=await mkdtemp(join(tmpdir(),'stockpilot-classification-'));server=await createApp(resolve('dist'),{dataDir:dir});await new Promise(r=>server.listen(0,'127.0.0.1',r));url='http://127.0.0.1:'+server.address().port;});
@@ -15,7 +15,7 @@ test('bulk classification survives reload and table imports, is shared, and can 
  await expect(page.locator('details.product')).toHaveCount(1);await expect(page.locator('details.product > summary')).toContainText('3 个 SKU');
  await page.reload();await expect(page.locator('details.product')).toHaveCount(1);
  const other=await browser.newContext();try{const coworker=await other.newPage();await login(coworker);await expect(coworker.locator('details.product')).toHaveCount(1);}finally{await other.close();}
- await page.locator('[data-kind="inventory"]').setInputFiles({name:'new-stock.csv',mimeType:'text/csv',buffer:Buffer.from('market,sku,product,available,snapshot_date\nUS,TEST001_42D,AUTO-DIFFERENT,11,2026-10-30\nUS,TEST002_40C,AUTO-DIFFERENT,12,2026-10-30\nUS,KNOWN_S,TEST-SPU,10,2026-10-30\n')});await expect(page.locator('#notice')).toContainText('已更新');await expect(page.locator('details.product')).toHaveCount(1);
+ await page.locator('[data-kind="inventory"]').setInputFiles({name:'new-stock.csv',mimeType:'text/csv',buffer:Buffer.from('market,sku,product,available,snapshot_date\nUS,UNRESOLVED-M,AUTO-DIFFERENT,11,2026-10-30\nUS,UNRESOLVED-L,AUTO-DIFFERENT,12,2026-10-30\nUS,KNOWN_S,TEST-SPU,10,2026-10-30\n')});await expect(page.locator('#notice')).toContainText('已更新');await expect(page.locator('details.product')).toHaveCount(1);
  const saved=await(await page.request.get(url+'/api/workspace/US')).json();expect(saved.data.skuMappings['US|'+skus[0]]).toBe('TEST-SPU');expect(saved.data.inventory[0].product).toBe('AUTO-DIFFERENT');
  await page.getByRole('button',{name:'手动归类SKU',exact:true}).click();await page.locator('#classification-filter').selectOption('manual');await expect(page.locator('.classification-row')).toHaveCount(2);
  await page.getByRole('button',{name:'选择当前筛选结果',exact:true}).click();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'恢复所选SKU自动识别',exact:true}).click();await expect(page.locator('.classification-dialog')).toHaveCount(0);await expect(page.locator('details.product')).toHaveCount(2);await expect(page.locator('details.product > summary')).toContainText(['AUTO-DIFFERENT','TEST-SPU']);

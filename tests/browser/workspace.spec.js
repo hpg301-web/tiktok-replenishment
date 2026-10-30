@@ -57,3 +57,11 @@ test('SPU cards start collapsed, expand only their own SKUs and retain expansion
  await groups.first().locator('[data-product]').selectOption('C');await expect(groups.first().locator('table')).toBeVisible();await expect(groups.nth(1).locator('table')).toBeHidden();
  await groups.first().locator(':scope > summary').press('Enter');await expect(groups.first().locator('table')).toBeHidden();
 });
+test('SKU coding automatically shows SPU card and parsed color/size for already imported records',async({page})=>{
+ await page.goto('/us.html');const asOf='2026-10-30';
+ const rows=['A007F1300_34C','A007F1301_34D'];const data={asOf,sales:rows.map(sku=>({market:'US',sku,date:asOf,units:1})),inventory:rows.map(sku=>({market:'US',sku,available:10,snapshot_date:asOf})),pipeline:[]};
+ await page.locator('#json').setInputFiles({name:'coding-rule-example.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});await expect(page.locator('details.product')).toHaveCount(1);await expect(page.locator('details.product > summary h3')).toHaveText('A007F13');
+ await openSpu(page);await expect(page.locator('tbody tr').first()).toContainText('颜色 00');await expect(page.locator('tbody tr').first()).toContainText('尺码 34C');
+ await page.reload();await expect(page.locator('details.product > summary h3')).toHaveText('A007F13');await page.getByRole('button',{name:'手动归类SKU',exact:true}).click();await page.locator('#classification-filter').selectOption('rule');await expect(page.locator('.classification-row')).toHaveCount(2);await expect(page.locator('.classification-row').first()).toContainText('编码识别');
+ await page.locator('#classification-close').click();
+});
