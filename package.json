@@ -12,7 +12,9 @@
     "start": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "test": "node --test --test-isolation=none tests/*.test.js",
     "check": "npm test && npm run build",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "serve": "node scripts/serve.mjs",
+    "package:windows": "npm run build && node scripts/package-windows.mjs"
   },
   "dependencies": {
     "papaparse": "5.7.0",
