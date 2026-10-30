@@ -10,10 +10,11 @@ test('reminder center shows risks, remembers shared reads, saves settings and de
   const asOf='2026-10-30',data={asOf,sales:Array.from({length:30},(_,n)=>({market:'US',sku:'001',product:'P',date:dateAt(dateNumber(asOf)-n),units:2,in_stock:true})),inventory:[{market:'US',sku:'001',product:'P',available:0,snapshot_date:asOf}],pipeline:[],overrides:{'US|P':'B'}};
   await page.locator('#json').setInputFiles({name:'real-fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});await expect(page.locator('#notice')).toContainText('已更新');
   await page.getByRole('button',{name:/^补货提醒/}).click();await page.getByRole('button',{name:'立即巡检',exact:true}).click();
-  await expect(page.locator('.agent-alert.urgent')).toHaveCount(3);await expect(page.locator('.agent-dialog')).toContainText('001');
+  await expect(page.locator('.agent-alert.urgent')).toHaveCount(3);await expect(page.locator('.agent-spu > summary')).toContainText('P');await expect(page.locator('.agent-dialog')).toContainText('001');
   expect(await page.evaluate(()=>window.__notices.length)).toBe(0);
   await page.getByRole('button',{name:'开启本浏览器通知',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__notices.length)).toBe(1);
   await page.getByRole('button',{name:'立即巡检',exact:true}).click();expect(await page.evaluate(()=>window.__notices.length)).toBe(1);
+  await expect(page.locator('.agent-sku')).toBeHidden();await page.locator('.agent-spu > summary').first().click();await expect(page.locator('.agent-sku')).toBeVisible();
   await page.getByRole('button',{name:'标记已读',exact:true}).first().click();await expect(page.locator('[data-ack]:disabled')).toHaveCount(1);
   await page.locator('.agent-settings summary').click();await page.locator('[name="dailyTime"]').fill('10:00');await page.getByRole('button',{name:'保存巡检设置',exact:true}).click();await expect(page.locator('#agent-error')).toContainText('设置已保存');
   await page.locator('#agent-close').click();await page.reload();await page.getByRole('button',{name:/^补货提醒/}).click();await expect(page.locator('[data-ack]:disabled')).toHaveCount(1);await page.locator('.agent-settings summary').click();await expect(page.locator('[name="dailyTime"]')).toHaveValue('10:00');expect(await page.evaluate(()=>window.__notices.length)).toBe(0);

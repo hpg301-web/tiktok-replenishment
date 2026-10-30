@@ -74,3 +74,17 @@ test('agent endpoints require login; only localhost changes settings; corrupt re
   assert.equal((await fetch(url+'/api/workspace/US',{headers:{Cookie}})).status,200);assert.equal((await fetch(url+'/api/agent',{headers:{Cookie}})).status,503);assert.equal(await readFile(join(dir,'agent-state.json'),'utf8'),'corrupt');
  }finally{if(server)await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true});}
 });
+test('legacy Germany-enabled settings are limited to US without modifying files during update',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'stockpilot-agent-us-only-'));
+ const config={revision:5,settings:{...DEFAULT_SETTINGS,markets:['US','DE'],dailyTime:'11:00',lookAheadDays:9}};
+ await writeFile(join(dir,'agent-settings.json'),JSON.stringify(config));
+ const previous={schema:1,alerts:[{id:'old-us',market:'US',level:'urgent',fingerprint:'us'},{id:'old-de',market:'DE',level:'urgent',fingerprint:'de'}],acks:{},history:[],notification:{id:'old-mixed'},lastDailyDay:day,lastUrgentSignature:'old',lastCheckedAt:'2026-10-30T01:30:00Z',checkedDate:day};
+ await writeFile(join(dir,'agent-state.json'),JSON.stringify(previous));await writeFile(join(dir,'DE.json'),'DE workspace stays untouched');await writeFile(join(dir,'update-lock'),'update');
+ const before=await readFile(join(dir,'agent-settings.json')),beforeState=await readFile(join(dir,'agent-state.json'));const reads=[];
+ const agent=await createReminderAgent({dataDir:dir,store:{read:async market=>{reads.push(market);return fixture();}},now:()=>new Date('2026-10-30T01:30:00Z')});
+ try{
+  let snap=await agent.snapshot();assert.deepEqual(snap.settings.markets,['US']);assert.ok(snap.alerts.every(a=>a.market==='US'));assert.equal(snap.notification,null);assert.deepEqual(await readFile(join(dir,'agent-settings.json')),before);assert.deepEqual(await readFile(join(dir,'agent-state.json')),beforeState);
+  await rm(join(dir,'update-lock'));snap=await agent.snapshot();assert.deepEqual(reads,['US']);assert.equal(snap.settings.dailyTime,'11:00');assert.equal(snap.settings.lookAheadDays,9);assert.ok(snap.alerts.every(a=>a.market==='US'&&a.spu==='P'));assert.equal(await readFile(join(dir,'DE.json'),'utf8'),'DE workspace stays untouched');
+  await assert.rejects(agent.saveSettings({...DEFAULT_SETTINGS,markets:['DE']},5),/仅监控美国/);
+ }finally{await agent.stop();await rm(dir,{recursive:true,force:true});}
+});

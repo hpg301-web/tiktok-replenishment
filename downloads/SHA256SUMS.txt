@@ -1,1 +1,1 @@
-e3f22917ceb8917f8c6ee449b90068ea49ca0b1502db94849f6f2d63af6baad4  StockPilot-Windows.zip
+d7ec449a94768399389e381bdc4c9d35042e6d829079a56dec2ac8bc3780dbba  StockPilot-Windows.zip

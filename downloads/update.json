@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "version": "0.3.0",
-  "buildId": "07acceb0ef7dba853b460566614dfd43936e6feb7cad359a05a97d4ecd23eaa6",
-  "sha256": "e3f22917ceb8917f8c6ee449b90068ea49ca0b1502db94849f6f2d63af6baad4",
-  "bytes": 214850,
-  "notes": "新增补货提醒Agent：定时巡检、每日汇总、临近补货/缺货提醒、资料质量提示和可选浏览器通知。保留团队共享、智能导入和在线更新。"
+  "version": "0.3.1",
+  "buildId": "536d000f01eee6ed14a69ce2352eca1cf231cf8927e43c9df27e0440e705e43d",
+  "sha256": "d7ec449a94768399389e381bdc4c9d35042e6d829079a56dec2ac8bc3780dbba",
+  "bytes": 219160,
+  "notes": "暂时仅监控美国；备货建议和提醒中心按SPU默认收起，点击展开对应SKU。保留策略调整、原始表格识别、团队共享及在线更新。"
 }
