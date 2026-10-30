@@ -1,5 +1,6 @@
 import Papa from 'papaparse';
-import { readSheet } from 'read-excel-file/browser';
+import readXlsxFile from 'read-excel-file/browser';
+import { inspectTable, normalizeImport } from './importer.js';
 import { dateAt, dateNumber } from './engine.js';
 export function emptyData(asOf = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date())) {
   return { asOf, sales: [], inventory: [], pipeline: [], overrides: {}, routes: {}, productSignals: {} };
@@ -13,35 +14,30 @@ export function demoData(market, asOf) {
   d.pipeline.push({ market, sku:'001', qty:30, shipment_id:'DEMO-001', eta:dateAt(now+12), status:'in_transit' });
   return d;
 }
-export async function readTable(file, kind) {
-  let rows;
-  if (/\.xlsx$/i.test(file.name)) {
-    const sheet = await readSheet(file); // First worksheet; template specifies one sheet per file.
-    const header = sheet.shift()?.map(String) || [];
-    rows = sheet.filter(row=>row.some(v=>v!==null)).map(row=>Object.fromEntries(header.map((key,i)=>[key,row[i]])));
-  } else if (/\.csv$/i.test(file.name)) {
-    const result = Papa.parse(await file.text(), { header:true, skipEmptyLines:'greedy', transformHeader:h=>h.replace(/^\uFEFF/,'').trim() });
-    if (result.errors.length) throw Error('CSV 解析失败：'+result.errors[0].message);
-    rows = result.data;
+export async function parseImportFile(file, kind) {
+  let sheets;
+  if (/\.xlsx$/i.test(file.name)) sheets = await readXlsxFile(file);
+  else if (/\.csv$/i.test(file.name)) {
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    let text;
+    if(bytes[0]===255 && bytes[1]===254)text=new TextDecoder('utf-16le').decode(bytes);
+    else if(bytes[0]===254 && bytes[1]===255)text=new TextDecoder('utf-16be').decode(bytes);
+    else {try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{text=new TextDecoder('gb18030',{fatal:true}).decode(bytes);}}
+    const parsed=Papa.parse(text.replace(/^\uFEFF/,''),{skipEmptyLines:false});
+    if(parsed.errors.length)throw Error('CSV解析失败：'+parsed.errors[0].message);
+    sheets=[{name:'CSV',data:parsed.data}];
   } else throw Error('请使用 CSV 或 XLSX 文件');
-  if (!rows.length) throw Error('文件没有数据行');
-  const required = { sales:['market','sku','date','units'], inventory:['market','sku','available','snapshot_date'], pipeline:['market','sku','qty','shipment_id','eta'] }[kind];
-  if (!required.every(k=>Object.hasOwn(rows[0],k))) throw Error('缺少列：'+required.join(', '));
-  return rows.map(row=>{
-    const r = {...row};
-    // XLSX identifiers must be stored as text; numeric cells cannot recover leading zeros.
-    if (typeof r.sku !== 'string') throw Error('SKU 单元格必须保存为文本，避免丢失前导零');
-    for (const key of ['units','available','qty']) if (Object.hasOwn(r,key)) {
-      if (r[key] === '' || r[key] == null) throw Error(key+' 不能为空');
-      r[key] = Number(r[key]);
-    }
-    for (const key of ['date','snapshot_date','eta']) if (r[key] instanceof Date) r[key] = r[key].toISOString().slice(0,10);
-    if (r.in_stock === '' || r.in_stock == null) delete r.in_stock;
-    else if (r.in_stock === true || r.in_stock === 'true') r.in_stock = true;
-    else if (r.in_stock === false || r.in_stock === 'false') r.in_stock = false;
-    else throw Error('in_stock 只接受 true / false');
-    return r;
-  });
+  const candidates=[];
+  for(const sheet of sheets){try{candidates.push(inspectTable(sheet.data,kind,file.name,sheet.name));}catch{}}
+  if(!candidates.length)throw Error('未找到可识别的对应工作表，请检查是否上传到正确的数据栏。');
+  return candidates;
+}
+export async function readTable(file, kind, options={}) {
+  const candidates=await parseImportFile(file,kind);
+  const info=candidates[0];
+  const {rows,report}=normalizeImport(info,{...options,market:options.market||'US',asOf:options.asOf||emptyData().asOf});
+  if(report.errors.length)throw Error(report.errors.map(e=>`第${e.row}行：${e.reason}`).join('；'));
+  return rows;
 }
 export function csv(rows) {
   // Neutralize spreadsheet formulas in user-supplied labels.
