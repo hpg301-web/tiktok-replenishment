@@ -1,7 +1,7 @@
-import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, rename, mkdir, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { plan, dateNumber, applyManualMappings } from '../src/engine.js';
 export const DEFAULT_SETTINGS=Object.freeze({enabled:true,markets:['US'],timeZone:'Asia/Shanghai',dailyTime:'09:00',intervalMinutes:15,lookAheadDays:7,notifyOnUrgent:true});
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -111,6 +111,13 @@ export async function createReminderAgent({store,dataDir,now=()=>new Date(),hear
     start(){if(timer)return;paused=false;timer=setInterval(()=>{void check('scheduled',false).catch(()=>{});},heartbeatMs);timer.unref?.();void check('startup',true).catch(()=>{});},
     async stop(){paused=true;clearInterval(timer);clearTimeout(debounce);timer=null;await queue;},
     async pause(){paused=true;clearTimeout(debounce);await queue;},resume(){paused=false;},
+    resetWorkspace(){return enqueue(async()=>{
+      if(existsSync(join(dataDir,'update-lock')))throw Object.assign(Error('软件更新期间不能清除巡检记录'),{status:503});
+      const backup=join(dataDir,'backups');await mkdir(backup,{recursive:true});
+      try{await copyFile(join(dataDir,'agent-state.json'),join(backup,'agent-state.before-US-clear.'+Date.now()+'.'+randomUUID()+'.json'));}catch(e){if(e.code!=='ENOENT')throw e;}
+      const next={schema:1,alerts:[],acks:{},history:[],notification:null,lastDailyDay:state.lastDailyDay,lastUrgentSignature:'',lastCheckedAt:null,checkedDate:null,trigger:'clear'};
+      await persist('agent-state.json',next);state=next;scopeChanged=false;lastError=null;return summary();
+    });},
     saveSettings(input,revision){return enqueue(async()=>{
       if(paused||existsSync(join(dataDir,'update-lock')))throw Object.assign(Error('更新期间不能更改提醒设置'),{status:503});
       if(revision!==config.revision)throw Object.assign(Error('设置已被更改，请重新打开提醒中心'),{status:409});

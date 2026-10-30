@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, rename, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, copyFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { validate, plan } from '../src/engine.js';
@@ -20,7 +20,31 @@ export async function openStore(dir) {
       return {revision:0,data:{asOf,sales:[],inventory:[],pipeline:[],overrides:{},routes:{},productSignals:{}},isDemo:false};
     }
   };
-  return {accessCode,read,async pause(){paused=true;await queue;},resume(){paused=false;},save(market,body,revision){
+  return {accessCode,read,async pause(){paused=true;await queue;},resume(){paused=false;},clearUS(input,revision,hooks){
+    if(input?.confirmed!==true)throw Object.assign(Error('请先点击确认清除，美国工作区尚未更改'),{status:400});
+    if(paused)throw Object.assign(Error('主机正在更新，暂时不能清除记录'),{status:503});
+    const operation=queue.then(async()=>{
+      const previous=await read('US');
+      if(revision!==previous.revision)throw Object.assign(Error('同事已更新美国数据，请刷新后重新确认；本次未清除'),{status:409});
+      const file=join(dir,'US.json'),id=Date.now()+'.'+randomBytes(8).toString('hex'),backup=join(dir,'backups','US.before-clear.'+id+'.json');
+      const next={revision:previous.revision+1,isDemo:false,updatedAt:new Date().toISOString(),data:{asOf:previous.data.asOf,sales:[],inventory:[],pipeline:[],routes:{},overrides:{},productSignals:{},skuMappings:{}}};
+      let written=false;
+      await hooks.pause();
+      try{
+        if(previous.revision)await copyFile(file,backup);
+        const temp=file+'.clear.tmp';await writeFile(temp,JSON.stringify(next),{mode:0o600});await rename(temp,file);written=true;
+        await hooks.resetWorkspace();
+        return next;
+      }catch(error){
+        if(written){
+          try{if(previous.revision){const restore=file+'.restore.tmp';await copyFile(backup,restore);await rename(restore,file);}else await rm(file,{force:true});}
+          catch{throw Object.assign(Error('清除未完成且自动恢复失败，请保留主机backups备份并联系管理员'),{status:503});}
+        }
+        throw Object.assign(Error('清除未完成，原美国工作区已保留：'+error.message),{status:503});
+      }finally{hooks.resume();}
+    });
+    queue=operation.catch(()=>{});return operation;
+  },save(market,body,revision){
     if(paused)throw Object.assign(Error('主机正在更新，暂时不能修改数据；请稍后刷新'),{status:503});
     const operation=queue.then(async()=>{
       validate(body.data,market);plan(body.data,market);

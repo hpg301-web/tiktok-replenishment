@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "version": "0.3.3",
-  "buildId": "bc356f58261cbe1383484a8fddb128bd4adf43b354f3f7ef74942f2234a6f8a9",
-  "sha256": "87e26cd9291956c56f35168197c9330100f3b0f0d039c5b98e5d3faa182329ed",
-  "bytes": 232126,
-  "notes": "新增SKU编码自动分类：下划线前最后两位为颜色编码，其余为SPU，下划线后为尺码。保留00等前导零；手动归类优先，应用于已有数据、备货建议和提醒。"
+  "version": "0.3.4",
+  "buildId": "4e2745fe96f22f4c0f3d5f8fd82abbda58e53bb2f0ebf21b092c24d8dfa1cc33",
+  "sha256": "57745e97881b0bf2b5ecf7f3a6ddbff3132b3df41555b9c64f9f890c2b28b001",
+  "bytes": 238897,
+  "notes": "新增美国工作区清除历史记录：必须点击确认才执行，取消不清除；自动备份并保留其他市场、口令及Agent定时设置，防止并发误删。"
 }

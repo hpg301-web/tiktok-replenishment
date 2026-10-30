@@ -14,7 +14,7 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
   const store=await openStore(dataDir);
   let agent;
   try{agent=await createReminderAgent({store,dataDir,...agentOptions});}
-  catch{const unavailable=()=>{throw Object.assign(Error('提醒文件无法读取；业务工作区仍可使用，请管理员核实提醒文件及备份'),{status:503});};agent={snapshot:unavailable,check:unavailable,saveSettings:unavailable,acknowledge:unavailable,start(){},stop:async()=>{},pause:async()=>{},resume(){},trigger(){}};}
+  catch{const unavailable=()=>{throw Object.assign(Error('提醒文件无法读取；业务工作区仍可使用，请管理员核实提醒文件及备份'),{status:503});};agent={snapshot:unavailable,check:unavailable,saveSettings:unavailable,acknowledge:unavailable,resetWorkspace:unavailable,start(){},stop:async()=>{},pause:async()=>{},resume(){},trigger(){}};}
   const updates=updaterFactory?await updaterFactory({...store,async pause(){await store.pause();await agent.pause();},resume(){store.resume();agent.resume();}}):null;
   const localManager=req=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)&&/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(req.headers.host||'');
   const sessions=new Map(), attempts=new Map();
@@ -71,6 +71,15 @@ export async function createApp(root, { dataDir=resolve(root,'../.stockpilot'), 
           if(req.url==='/api/update/check'&&req.method==='POST')return json(200,await updates.check());
           if(req.url==='/api/update/install'&&req.method==='POST')return json(202,await updates.install(await body(req)));
           return json(405,{error:'Method not allowed'});
+        }
+        if(req.url==='/api/workspace/US/clear'){
+          if(req.method!=='POST')return json(405,{error:'Method not allowed'});
+          if(existsSync(resolve(dataDir,'update-lock')))return json(503,{error:'软件更新期间不能清除历史记录'});
+          const revision=Number(req.headers['if-match']);
+          if(req.headers['if-match']===undefined||!Number.isSafeInteger(revision)||revision<0)return json(428,{error:'请刷新美国工作区后重新确认清除'});
+          const input=await body(req);
+          const cleared=await store.clearUS(input,revision,{pause:()=>agent.pause(),resume:()=>agent.resume(),resetWorkspace:()=>agent.resetWorkspace()});
+          return json(200,cleared);
         }
         const match=/^\/api\/workspace\/(US|DE)$/.exec(req.url);
         if(!match)return json(404,{error:'Not found'});

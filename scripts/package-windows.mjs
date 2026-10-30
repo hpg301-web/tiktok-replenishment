@@ -8,7 +8,7 @@ files.push('scripts/serve.mjs','scripts/store.mjs','scripts/reminder-agent.mjs',
 const entries=await Promise.all(files.map(async file=>[file,await readFile(resolve(root,file))]));
 const {version}=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
 const release=buildRelease(entries,version);entries.push(['release.json',Buffer.from(JSON.stringify(release))]);
-const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'新增SKU编码自动分类：下划线前最后两位为颜色编码，其余为SPU，下划线后为尺码。保留00等前导零；手动归类优先，应用于已有数据、备货建议和提醒。'};
+const archive=encodeZip(entries),manifest={schema:1,version,buildId:release.buildId,sha256:sha256(archive),bytes:archive.length,notes:'新增美国工作区清除历史记录：必须点击确认才执行，取消不清除；自动备份并保留其他市场、口令及Agent定时设置，防止并发误删。'};
 await mkdir(resolve(root,'downloads'),{recursive:true});await writeFile(resolve(root,'downloads/StockPilot-Windows.zip'),archive);
 await writeFile(resolve(root,'downloads/SHA256SUMS.txt'),manifest.sha256+'  StockPilot-Windows.zip\n');
 await writeFile(resolve(root,'downloads/update.json'),JSON.stringify(manifest,null,2)+'\n');
